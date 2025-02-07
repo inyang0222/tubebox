@@ -1,0 +1,789 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.17.0/xlsx.full.min.js"></script>
+    <title>표 생성 및 검색</title>
+    <style>
+        body {
+            display: flex;
+            margin: 0;
+        }
+        .top-bar {
+            width: 100%;
+            padding: 10px;
+            background-color: #ddd;
+            display: flex;
+            gap: 10px;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 1000;
+        }
+        .top-bar input {
+            padding: 7px;
+            width: 300px;
+        }
+        .sidebar {
+            margin-top: 50px;
+            width: 220px;
+            padding: 20px;
+            border-right: 1px solid #ddd;
+            background-color: #f4f4f4;
+            height: 100vh;
+            flex-direction: column;
+            display: flex;
+            position: fixed;
+        }
+        .div-container {
+            padding: 5px;
+            background: #ddd;
+            border-radius: 10px;
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        .container {
+            margin-top: 50px;
+            flex-grow: 1;
+            padding: 20px;
+            margin-left: 270px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            box-shadow: 0px 4px 6px rgba(0, 0, 0, 0.1);
+            font-family: 'Poppins', sans-serif;
+        }
+        .main-content {
+            flex-grow: 1;
+            padding: 65px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin-left: 250px;
+            overflow-y: auto;
+            max-height: 100vh;
+            position: relative;
+        }
+        .table-container {
+            width: 100%;
+            max-height: 90vh;
+            overflow-y: auto;
+            border-radius: 10px;
+            box-shadow: 0px 4px 6px rgba(0, 0, 0, 0.1);
+            background: white;
+            position: relative;
+        }
+        th, td {
+            border: 1px solid #222222;
+            padding: 10px;
+            text-align: center;
+            position: relative;
+        }
+        th {
+            background-color: #000000;
+            cursor: pointer;
+            font-weight: 600;
+            border: 1px solid #222222;
+        }
+        thead {
+            position: sticky;
+            top: 0;
+            background: #f9fde3;
+            color: rgb(255, 255, 255);
+            z-index: 100;
+        }
+        .highlight {
+            background-color: #46464623 !important;
+        }
+        .more_than {
+            background-color: #affff423 !important;
+        }
+        
+        .popup, .settings-popup {
+            display: none;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: white;
+            padding: 20px;
+            border: 1px solid #ddd;
+            box-shadow: 2px 2px 10px rgba(0, 0, 0, 0.2);
+            z-index: 20;
+        }
+        .popup button, .settings-popup button {
+            margin-top: 10px;
+            padding: 5px 10px;
+            cursor: pointer;
+        }
+        .popup li {
+            padding: 5px;
+            border-bottom: 1px solid #ccc;
+            cursor: pointer;
+        }
+        .status {
+            margin-top: 20px;
+            text-align: center;
+        }
+        .progress-bar {
+            width: 100%;
+            height: 20px;
+            background-color: #eee;
+            border: 1px solid #ccc;
+            position: relative;
+        }
+        .progress-bar-fill {
+            height: 100%;
+            width: 0;
+            background-color: #4caf50;
+            transition: width 0.3s;
+        }
+        .green-cell {
+            background-color: lightgreen !important;
+        }
+        button {
+            padding: 8px;
+            background: #007bff;
+            color: white;
+            border: none;
+            cursor: pointer;
+        }
+        .button_other {
+            padding: 8px;
+            background: #4d4d4d;
+            color: white;
+            border: none;
+            border: 1px solid #000000;
+            cursor: pointer;
+        }
+        .button_other2 {
+            padding: 8px;
+            background: #868686;
+            color: white;
+            border: 1px solid #000000;
+            border: none;
+            cursor: pointer;
+        }
+        .tooltip {
+            display: none;
+            position: absolute !important;
+            background-color: black;
+            color: white;
+            padding: 5px;
+            border-radius: 5px;
+            font-size: 12px;
+            top: 90%;
+            left: 50%;
+            transform: translateX(-50%);
+            white-space: nowrap;
+            z-index: 1;
+        }
+        th:hover .tooltip {
+            display: block;
+        }
+    </style>
+    <script>
+        let storage = [];
+        let sortAscending = true;
+        let storedResults = [];
+        function generateRandomString(length) {
+            const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+            let result = '';
+            for (let i = 0; i < length; i++) {
+                result += characters.charAt(Math.floor(Math.random() * characters.length));
+            }
+            return result;
+        }
+        function generateRandomNumber() {
+            return Math.floor(Math.random() * 100);
+        }
+        function generateRandomDate() {
+            let now = new Date();
+            let pastDate = new Date(now);
+            pastDate.setMonth(pastDate.getMonth() - Math.floor(Math.random() * 3));
+            return pastDate.toISOString().split('T')[0];
+        }
+        function formatText(text) {
+            return text.match(/.{1,70}/g).join('\n');
+        }
+        function createRow(body,ID,title,date,yLink,desc) {
+            let row = document.createElement("tr");    
+            let cell0 = document.createElement("td");
+            cell0.style.width= "90px";
+            cell0.innerText = ID;
+            row.appendChild(cell0);
+            
+            let cell1 = document.createElement("td");
+            cell1.style.width= "200px";
+            cell1.innerText = title;
+            if (title >= 50) {
+                cell1.classList.add("green-cell");
+            }
+            row.appendChild(cell1);
+
+            let cell2 = document.createElement("td");
+            cell2.style.width= "180px";
+            let uploadDate = date;
+            cell2.innerText = uploadDate;
+            cell2.setAttribute("data-date", uploadDate);
+            row.appendChild(cell2);
+            
+            const youtubeLinks = [
+        "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+        "https://www.youtube.com/watch?v=3JZ_D3ELwOQ",
+            ];
+            let cell3 = document.createElement("td");
+            let link = document.createElement("a");
+            cell3.style.width= "50px";
+            link.href = yLink;
+            link.target = "_blank";
+            link.textContent = "링크";
+            cell3.appendChild(link);
+            row.appendChild(cell3);
+            
+            let cell_mp4 = document.createElement("td");
+            cell_mp4.style.width= "100px";
+            let captionButton_mp4 = document.createElement("button");
+            captionButton_mp4.className= "button_other";
+            captionButton_mp4.textContent = "MP4";
+            captionButton_mp4.onclick = function() {
+                alert(link.href);
+            };
+            cell_mp4.appendChild(captionButton_mp4);
+
+            let captionButton_mp3 = document.createElement("button");
+            captionButton_mp3.className= "button_other";
+            captionButton_mp3.textContent = "MP3";
+            captionButton_mp3.onclick = function() {
+                alert(link.href);
+            };
+            cell_mp4.appendChild(captionButton_mp3);
+            row.appendChild(cell_mp4);
+            
+            
+            let longTextCell = document.createElement("td");
+            let longText = desc;
+            longTextCell.setAttribute("data-fulltext", formatText(longText));
+            longTextCell.style.cursor="pointer";
+            longTextCell.innerText = longText.substring(0, 20) + "...";
+            longTextCell.addEventListener("click", function() {
+                showFullText(longTextCell)
+            });
+            row.appendChild(longTextCell);
+
+            let cell4 = document.createElement("td");
+            let captionButton = document.createElement("button");
+            captionButton.className= "button_other";
+            captionButton.textContent = "자막 추출";
+            captionButton.onclick = function() {
+                let textContent4 = yLink;
+                cell4.setAttribute("data-fulltext", formatText(textContent4));
+                cell4.innerText = textContent4.substring(0, 10) + "...";
+                cell4.addEventListener("click", function() {
+                    document.getElementById("popup-text").innerText = cell4.getAttribute("data-fulltext");
+                    document.querySelector(".popup").style.display = "block";
+                });
+            };
+            cell4.appendChild(captionButton);
+            row.appendChild(cell4);
+            body.appendChild(row);
+        }
+        function generateTable(result) {
+            resetSelection();
+            let rowCount = parseInt(document.getElementById("row-count").value);
+            let tbody = document.querySelector("tbody");
+            let keyword = document.getElementById("keyword").value.trim();
+            tbody.innerHTML = "";
+            if (!keyword) return;
+
+            let progressBar = document.getElementById("progress-bar-fill");
+            let statusMessage = document.getElementById("status-message");
+            progressBar.style.width = "0%";
+            statusMessage.innerText = "데이터 생성 중...";
+
+            setTimeout(() => {
+                for (let i = 0; i < rowCount; i++) {
+                    let ID = result[i]['id'];
+                    let Title = result[i]['title'];
+                    let Date = result[i]['publishedAt'];
+                    let desc = result[i]['description'];
+                    let yLink = "https://www.youtube.com/watch?v="+ID;
+                    createRow(tbody,ID,Title,Date,yLink,desc)
+                    progressBar.style.width = ((i + 1) / rowCount) * 100 + "%";
+                }
+                statusMessage.innerText = "데이터 생성 완료";
+            }, 500);
+        }
+        function downloadMP4(link){
+            alert(link);
+        }
+        function downloadMP3(link){
+            alert(link);
+        }
+        function collect_comment(link,cell){
+            let textContent4 = link;
+            cell.setAttribute("data-fulltext", formatText(textContent4));
+            cell.innerText = textContent4.substring(0, 10) + "...";
+            cell.addEventListener("click", function() {
+                document.getElementById("popup-text").innerText = cell.getAttribute("data-fulltext");
+                document.querySelector(".popup").style.display = "block";
+            });
+        }
+        function showFullText(cell){
+            document.getElementById("popup-text").innerText = cell.getAttribute("data-fulltext");
+            document.querySelector(".popup").style.display = "block";
+        }
+        function closePopup() {
+            document.querySelector(".popup").style.display = "none";
+        }
+        
+        function copyToClipboard() {
+            const text = document.getElementById("popup-text").innerText;
+            navigator.clipboard.writeText(text).then(() => {
+                alert("텍스트가 복사되었습니다!");
+            }).catch(err => {
+                console.error("복사 실패", err);
+            });
+        }
+
+        function highlightColumn(index) {
+            document.querySelectorAll("td, th").forEach(cell => {
+                cell.classList.remove("highlight");
+            });
+            document.querySelectorAll(`tr td:nth-child(${index + 1}), th:nth-child(${index + 1})`).forEach(cell => {
+                cell.classList.add("highlight");
+            });
+        }
+        function showSettings() {
+            document.getElementById("settings-text").innerText = "서비스 구독 만료일: 2025-12-31";
+            document.querySelector(".settings-popup").style.display = "block";
+        }
+        function closeSettings() {
+            document.querySelector(".settings-popup").style.display = "none";
+        }
+
+        function filterByPeriod() {
+            let period = parseInt(document.getElementById("period-select").value);
+            if(period == 0) {
+                let tbody = document.querySelector("tbody");
+                let rows = tbody.querySelectorAll("tr");
+                rows.forEach(row => {
+                    row.style.display = "";
+                });
+                return;
+            }
+            let now = new Date();
+            let tbody = document.querySelector("tbody");
+            let rows = tbody.querySelectorAll("tr");
+
+            rows.forEach(row => {
+                let uploadDate = new Date(row.children[2].getAttribute("data-date"));
+                let diffMonths = (now.getFullYear() - uploadDate.getFullYear()) * 12 + now.getMonth() - uploadDate.getMonth();
+                row.style.display = (diffMonths <= period) ? "" : "none";
+            });
+        }
+
+        function confirmDownload() {
+            const tableBody = document.getElementById('resultTable').querySelector('tbody');
+            if (tableBody.children.length === 0) {
+                alert("다운로드 할 결과가 없습니다!");
+                return;
+            }
+            if (confirm("다운로드하시겠습니까?")) {
+                downloadExcel();
+            }
+        }
+        function downloadExcel() {
+            let table = document.getElementById("resultTable");
+            let wb = XLSX.utils.book_new();
+            let ws_data = [["날짜", "유튜브 링크", "설명", "자막"]];
+            
+            let rows = table.querySelectorAll("tbody tr");
+            rows.forEach((row, index) => {
+                if(row.style.display == "none"){
+                    return;
+                }
+                let cells = row.querySelectorAll("td");
+                ws_data.push([
+                    cells[2].innerText,
+                    cells[3].querySelector("a").href,
+                    cells[5].getAttribute("data-fulltext")
+                ]);
+            });
+            let now = new Date().toISOString().split('T')[0];
+            let title = String(now)+".xlsx";
+            let ws = XLSX.utils.aoa_to_sheet(ws_data);
+            XLSX.utils.book_append_sheet(wb, ws, "결과표");
+            XLSX.writeFile(wb, title);
+        }
+
+        function openUrl() {
+            let url = document.getElementById("urlInput").value.trim();
+            if (url) {
+                window.open(url, '_blank');
+            } else {
+                alert("URL을 입력하세요.");
+            }
+        }
+        function setSelection(p,c,l,v,s,k) {
+            document.getElementById("period-select").selectedIndex = p;
+            document.getElementById("contents-select").selectedIndex = c;
+            document.getElementById("length-select").selectedIndex = l;
+            document.getElementById("views-select").selectedIndex = v;
+            document.getElementById("subs-count").value = s;
+            document.getElementById("keyword").value = k;
+            filterByPeriod();
+        }
+        function resetSelection() {
+            document.getElementById("period-select").selectedIndex = 0;
+            document.getElementById("contents-select").selectedIndex = 0;
+            document.getElementById("length-select").selectedIndex = 0;
+            document.getElementById("views-select").selectedIndex = 0;
+            document.getElementById("subs-count").value = 10000;
+            filterByPeriod();
+        }
+
+        function sortTable_num(index) {
+            let tbody = document.querySelector("tbody");
+            let rows = Array.from(tbody.querySelectorAll("tr"));
+            rows.sort((a, b) => {
+                let cellA = a.children[index].innerText;
+                let cellB = b.children[index].innerText;
+                return sortAscending ? cellA.localeCompare(cellB) : cellB.localeCompare(cellA);
+            });
+            sortAscending = !sortAscending;
+            tbody.innerHTML = "";
+            rows.forEach(row => tbody.appendChild(row));
+        }
+        function storeResults() {
+            const tableBody = document.querySelector("#resultTable tbody");
+
+            const option_videoLength = document.getElementById("length-select").value;
+            const option_impact = document.getElementById("contents-select").value;
+            const option_date = document.getElementById("period-select").value;
+            const option_views = document.getElementById("views-select").value;
+            const option_subs = document.getElementById("subs-count").value;
+            const keyword = document.getElementById("keyword").value.trim();
+            //inyang
+            
+            if (tableBody.children.length === 0) {
+                alert("저장할 데이터가 없습니다.");
+                return;
+            }
+            const today = new Date().toISOString().split('T')[0];
+            const resultName = prompt('보관할 결과의 이름을 입력하세요:', today);
+            if (resultName == null ) return;
+            //if ( 기록의 갯수가 10개라면 ) return;
+            let data = [];
+            for (let row of tableBody.children) {
+                let list = [];
+                let ID = row.cells[0].innerHTML;
+                let Title = row.cells[1].innerHTML;
+                let Date = row.cells[2].innerHTML;
+                let Link = row.cells[3].outerHTML.split("\"")[1];
+                let Desc = row.cells[5].getAttribute("data-fulltext");
+                list.push(ID);
+                list.push(Title);
+                list.push(Date);
+                list.push(Link);
+                list.push(Desc);
+                
+                data.push(list);
+            }
+            data.videoLength = option_videoLength;
+            data.impact = option_impact;
+            data.date = option_date;
+            data.views = option_views;
+            data.subs = option_subs;
+            data.keyword = keyword;
+            
+            data.name = resultName;
+            storedResults.push(data); // DB에 넣기
+            alert("데이터가 저장되었습니다.");
+        }
+        function showStorage() {
+            const storageList = document.getElementById('storageList');
+            storageList.innerHTML = '';
+            //DB 데이터 불러와서 넣어주면됨
+            storedResults.forEach((result, index) => {
+                const div_list = document.createElement('div');
+                const input = document.createElement('input');
+                input.type = 'checkbox';
+                input.className = 'storage-item';
+                input.dataset.index = index;
+                div_list.appendChild(input);
+
+                const a = document.createElement('a');
+                a.textContent = result.name;
+                a.style.cursor = "pointer";
+                div_list.appendChild(a);
+                storageList.appendChild(div_list);
+                a.onclick = () => loadStoredResult(index);
+            });
+            document.getElementById('storagePopup').style.display = 'block';
+        }
+        function closeStorage() {
+            document.getElementById('storagePopup').style.display = 'none';
+        }
+        function loadStoredResult(index) {
+            let l = storedResults[index].videoLength;
+            let i = storedResults[index].impact;
+            let d = storedResults[index].date;
+            let v = storedResults[index].views;
+            let s = storedResults[index].subs;
+            let k = storedResults[index].keyword;
+
+            let tbody = document.getElementById('resultTable').querySelector('tbody');
+            let rowCount = storedResults[index].length;
+            tbody.innerHTML = "";
+
+            let progressBar = document.getElementById("progress-bar-fill");
+            let statusMessage = document.getElementById("status-message");
+            progressBar.style.width = "0%";
+            statusMessage.innerText = "데이터 생성 중...";
+
+            setTimeout(() => {
+                for (let i = 0; i < rowCount; i++) {
+                    
+                    let storedRowData = storedResults[index][i];
+                    let ID = storedRowData[0];
+                    let Title = storedRowData[1];
+                    let uploadDate = storedRowData[2];
+                    let yLink = storedRowData[3];
+                    let desc = storedRowData[4];
+
+                    createRow(tbody,ID,Title,uploadDate,yLink,desc);
+                    progressBar.style.width = ((i + 1) / rowCount) * 100 + "%";
+                }
+                statusMessage.innerText = "데이터 생성 완료";
+                setSelection(d,i,l,v,s,k);
+            }, 500);
+            closeStorage();
+        }
+        function deleteSelectedStorage(button) {
+            let checkboxes = document.querySelectorAll(".storage-item");
+            checkboxes.forEach((checkbox, index) => {
+                if (checkbox.checked) {
+                    //DB 에서 삭제하면됨
+                }
+            });
+            showStorage(); // 업데이트된 리스트 다시 표시
+            alert("선택된 데이터가 삭제되었습니다.");
+        }
+        function sortTable_number(index) {
+            let tbody = document.querySelector("tbody");
+            let rows = Array.from(tbody.rows);
+            let sorted = rows.sort((a, b) => {
+                let aVal = parseInt(a.children[index].textContent);
+                let bVal = parseInt(b.children[index].textContent);
+                return sortAscending ? aVal - bVal : bVal - aVal;
+            });
+            sortAscending = !sortAscending;
+            tbody.innerHTML = "";
+            rows.forEach(row => tbody.appendChild(row));
+        }
+        function sortTable(index) {
+            let tbody = document.querySelector("tbody");
+            let rows = Array.from(tbody.querySelectorAll("tr"));
+            rows.sort((a, b) => {
+                let cellA = a.children[index].innerText;
+                let cellB = b.children[index].innerText;
+                return sortAscending ? cellA.localeCompare(cellB) : cellB.localeCompare(cellA);
+            });
+            sortAscending = !sortAscending;
+            tbody.innerHTML = "";
+            rows.forEach(row => tbody.appendChild(row));
+        }
+        function sendData() {
+            let userInput = document.getElementById("userInput").value;
+            let formData = new FormData();
+            formData.append("user_input", userInput);
+
+            fetch("/tubebox/searchVideo/", {
+                method: "POST",
+                body: formData,
+                headers: {
+                    "X-CSRFToken": getCookie("csrftoken")  // CSRF 토큰 추가
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById("response").innerText = data.message;
+            })
+            .catch(error => console.error("Error:", error));
+        }
+        function searchVideo() {
+            let keyword = document.getElementById("keyword").value;
+            let formData = new FormData();
+            formData.append("keyword", keyword);
+
+            fetch("/tubebox/searchVideo/", {
+                method: "POST",
+                body: formData,
+                headers: {
+                    "X-CSRFToken": getCookie("csrftoken")  // CSRF 토큰 추가
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                let result = data.result;
+                generateTable(result);
+                //inyang
+                //document.getElementById("response").innerText = data.message;
+            })
+            .catch(error => console.error("Error:", error));
+        }
+
+        function getCookie(name) {
+            let cookieValue = null;
+            if (document.cookie && document.cookie !== "") {
+                let cookies = document.cookie.split(";");
+                for (let i = 0; i < cookies.length; i++) {
+                    let cookie = cookies[i].trim();
+                    if (cookie.startsWith(name + "=")) {
+                        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                        break;
+                    }
+                }
+            }
+            return cookieValue;
+        }
+        
+        document.addEventListener("DOMContentLoaded", () => {
+            document.querySelectorAll("th").forEach((th, index) => {
+                th.addEventListener("click", () => {
+                    highlightColumn(index);
+                    if (index === 0) sortTable_number(index);
+                    if (index === 2) sortTable(index);
+                });
+            });
+        });
+    </script>
+</head>
+<body>
+    <div class="top-bar">
+        <input type="text" id="urlInput" placeholder="URL을 입력하세요">
+        <button class="button_other2"onclick="openUrl()">
+            <img src="https://cdn-icons-png.flaticon.com/512/32/32339.png" alt="생성" width="16" height="16"> 링크 접속
+        </button>
+        <button class="button_other2"onclick="openUrl()">
+            <img src="https://cdn-icons-png.flaticon.com/512/32/32339.png" alt="생성" width="16" height="16">MP4 다운로드
+        </button>
+        <button class="button_other2"onclick="openUrl()"><img src="https://cdn-icons-png.flaticon.com/512/32/32339.png" alt="생성" width="16" height="16">MP3 다운로드</button>
+        <button class="button_other2" style="margin-left: 200px;" onclick="storeResults()"><img src="https://cdn-icons-png.flaticon.com/512/32/32339.png" alt="생성" width="16" height="16">보관</button>
+        <button class="button_other2"style="margin-left: 10px;" onclick="showStorage()"><img src="https://cdn-icons-png.flaticon.com/512/32/32339.png" alt="생성" width="16" height="16">내보관함</button>
+        <button class="button_other2"style="margin-left: 200px;" onclick="confirmDownload()"><img src="https://cdn-icons-png.flaticon.com/512/32/32339.png" alt="생성" width="16" height="16">현재 엑셀 다운로드</button>
+        
+    </div>
+    <div class="sidebar">
+        <h4>키워드 검색</h4>
+        <div class="div-container" style="display: inline-block">
+                <select id="priority-select" style="width: 150px; text-align: center;">
+                    <option value="1">최신 순</option>
+                    <option value="2">조회수 순</option>
+                </select><br>
+                <select id="row-count" style="width:150px; text-align: center;">
+                    <option value="1">수집 수: 1</option>
+                    <option value="50">수집 수: 50</option>
+                    <option value="100">수집 수:100</option>
+                    <option value="200">수집 수:200</option>
+                </select><br><br>
+                {% csrf_token %}
+                <input type="text" id="keyword" placeholder="키워드를 입력하세요" style="padding: 7px;"><br><br>
+                <button onclick="searchVideo()">검색</button>
+        </div><br><br>
+        <h4>필터</h4>
+        <div class="div-container" style="display: inline-block">
+        <select id="length-select" onchange="filterByPeriod()" style="width:200px">
+            <option value="0">영상 길이: 선택안함</option>
+            <option value="1">영상 길이: 쇼츠</option>
+            <option value="2">영상 길이: 롱폼</option>
+        </select><br>
+        <select id="contents-select" onchange="filterByPeriod()"style="width:200px">
+            <option value="0">영향력 지수: 선택안함</option>
+            <option value="1">영향력 지수: 높음</option>
+            <option value="2">영향력 지수: 중간</option>
+            <option value="2">영향력 지수: 낮음</option>
+        </select><br>
+        
+        <select id="period-select" onchange="filterByPeriod()"style="width:200px">
+            <option value="0">업로드 기간: 선택안함</option>
+            <option value="1">업로드 기간: 1개월 이내</option>
+            <option value="2">업로드 기간: 2개월 이내</option>
+            <option value="3">업로드 기간: 1년 이내</option>
+        </select><br>
+        
+        <select id="views-select" onchange="filterByPeriod()"style="width:200px">
+            <option value="0">조회 수: 선택안함</option>
+            <option value="1">조회 수: 1천 이상</option>
+            <option value="2">조회 수: 1만 이상</option>
+            <option value="3">조회 수: 10만 이상</option>    
+        </select><br>
+
+        구독자
+        <input type="number" id="subs-count" placeholder="구독자" min="1" value="10000" style="width: 80px;"/> 명 이상<br><br>
+        <button onclick="resetSelection()">필터 해제</button><br>
+        </div>
+        <div class="status">
+            <p id="status-message">현재 상태 없음</p>
+            <div class="progress-bar">
+                <div id="progress-bar-fill" class="progress-bar-fill"></div>
+            </div>
+        </div>
+        <br><br><br>
+
+        <div style="position:relative;height:710px;">
+            <div style="position:absolute; right:0px; bottom:100px;">
+                {% csrf_token %}
+                <input type="text" id="userInput" placeholder="값 입력">
+                <button onclick="sendData()">전송</button>
+                <p id="response"></p>
+
+                <button onclick="showSettings()"class="button_other">계정 설정</button>
+                <button onclick="showSettings()"class="button_other">로그아웃</button>        
+            </div>
+        </div>
+        
+    </div>
+    <div class="main-content">
+        <div class="table-container">
+            <table id="resultTable">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>영상 제목</th>
+                        <th>업로드 날짜</th>
+                        <th>영상 링크</th>
+                        <th>다운로드</th>
+                        <th>영상 설명</th>
+                        <th>자막<span class="tooltip">/ 영상 자막</span></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    
+                </tbody>
+            </table>
+        </div>
+    </div>
+    
+    <div class="popup">
+        <p id="popup-text"></p>
+        <button onclick="copyToClipboard()">전체 복사</button>
+        <button onclick="closePopup()">닫기</button>
+    </div>
+    <div class="settings-popup">
+        <p id="settings-text"></p>
+        <button onclick="closeSettings()">닫기</button>
+    </div>
+    <div class="popup" id="storagePopup">
+        <h3>최대 10개의 기록 보관이 가능합니다.</h3>
+        <ul id="storageList"></ul>
+        <button onclick='deleteSelectedStorage(this)'>선택 삭제</button>
+        <button onclick="closeStorage()">닫기</button>
+    </div>
+</body>
+</html>
