@@ -5,7 +5,6 @@ from django.http import JsonResponse
 
 def main(request):
     return render(request, 'main.html')
-
 def search_video(request):
     if request.method == 'POST':
         keyword = request.POST.get('keyword', '')
